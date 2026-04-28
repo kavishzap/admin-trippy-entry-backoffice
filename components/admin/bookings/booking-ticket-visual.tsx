@@ -10,7 +10,7 @@ export type TicketLineQr = { name: string; quantity: number }
 
 /** Keep canvas export aligned with the on-screen overlay. */
 const QR_LAYOUT = {
-  rightPct: 3.5,
+  rightPct: 3.57,
   bottomPct: 18,
   widthPct: 15,
   maxWidthPx: 80,

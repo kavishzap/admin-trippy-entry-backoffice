@@ -1,63 +1,96 @@
+import { Suspense } from "react"
 import { createClient } from "@/lib/supabase/server"
 import { UsersTable } from "@/components/admin/users/users-table"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { StatsCard } from "@/components/admin/stats-card"
-import { Users, UserCheck, Shield } from "lucide-react"
 
-export default async function UsersPage() {
+const PAGE_SIZE = 10
+
+interface UsersPageProps {
+  searchParams: Promise<{ page?: string; q?: string }>
+}
+
+export default async function UsersPage({ searchParams }: UsersPageProps) {
+  const sp = await searchParams
+  const page = Math.max(1, parseInt(sp.page ?? "1", 10) || 1)
+  const q = (sp.q ?? "").trim()
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+
   const supabase = await createClient()
 
-  const [
-    { data: users },
-    { data: userTypes },
-    { count: totalUsers },
-    { count: adminUsers },
-  ] = await Promise.all([
-    supabase
-      .from("users")
-      .select("*, user_types(name)")
-      .order("created_at", { ascending: false }),
-    supabase.from("user_types").select("*").order("name"),
-    supabase.from("users").select("*", { count: "exact", head: true }),
-    supabase.from("users").select("*", { count: "exact", head: true }).eq("is_admin", true),
-  ])
+  let listQuery = supabase
+    .from("user_profiles")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+
+  if (q) {
+    const esc = q.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_").replace(/,/g, " ")
+    const pat = `%${esc}%`
+    listQuery = listQuery.or(
+      `email.ilike.${pat},phone.ilike.${pat},first_name.ilike.${pat},last_name.ilike.${pat}`,
+    )
+  }
+
+  const { data: profiles, count } = await listQuery.range(from, to)
+
+  let users = [...(profiles || [])]
+  let total = count ?? 0
+
+  const { data: authResult } = await supabase.auth.getUser()
+  const authUser = authResult?.user
+
+  if (authUser && !q) {
+    const { data: profileRow } = await supabase
+      .from("user_profiles")
+      .select("id")
+      .eq("id", authUser.id)
+      .maybeSingle()
+
+    if (!profileRow && page === 1) {
+      const synthetic = {
+        id: authUser.id,
+        first_name: (authUser.user_metadata?.first_name as string | undefined) || null,
+        last_name: (authUser.user_metadata?.last_name as string | undefined) || null,
+        email: authUser.email || null,
+        phone: authUser.phone || null,
+        created_at: authUser.created_at || new Date().toISOString(),
+      }
+      if (!users.some((u) => u.id === synthetic.id)) {
+        users.unshift(synthetic)
+        if (users.length > PAGE_SIZE) {
+          users = users.slice(0, PAGE_SIZE)
+        }
+        total += 1
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Users</h1>
         <p className="text-muted-foreground">
-          Manage all registered users on your platform.
+          View all registered users on your platform.
         </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatsCard
-          title="Total Users"
-          value={totalUsers || 0}
-          icon={Users}
-        />
-        <StatsCard
-          title="Admin Users"
-          value={adminUsers || 0}
-          icon={Shield}
-        />
-        <StatsCard
-          title="Regular Users"
-          value={(totalUsers || 0) - (adminUsers || 0)}
-          icon={UserCheck}
-        />
       </div>
 
       <Card className="bg-card">
         <CardHeader>
           <CardTitle className="text-card-foreground">All Users</CardTitle>
           <CardDescription>
-            View and manage user accounts and permissions.
+            Read-only list of registered users. Search by email, name, or phone.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UsersTable users={users || []} userTypes={userTypes || []} />
+          <Suspense fallback={<div className="h-40 animate-pulse rounded-lg bg-muted" />}>
+            <UsersTable
+              users={users}
+              total={total}
+              page={page}
+              pageSize={PAGE_SIZE}
+              query={q}
+            />
+          </Suspense>
         </CardContent>
       </Card>
     </div>

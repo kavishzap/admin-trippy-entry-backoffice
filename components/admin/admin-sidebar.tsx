@@ -7,6 +7,7 @@ import {
   Music,
   Ticket,
   CalendarCheck,
+  Users,
 } from "lucide-react"
 import {
   Sidebar,
@@ -26,6 +27,7 @@ const mainNavItems = [
   { title: "Concerts", href: "/concerts", icon: Music },
   { title: "Tickets", href: "/tickets", icon: Ticket },
   { title: "Bookings", href: "/bookings", icon: CalendarCheck },
+  { title: "Users", href: "/users", icon: Users },
 ]
 
 export function AdminSidebar() {

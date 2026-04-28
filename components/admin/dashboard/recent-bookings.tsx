@@ -3,65 +3,73 @@
 import { format } from "date-fns"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/admin/data-table"
-import { StatusBadge } from "@/components/admin/status-badge"
-
-interface Booking {
-  id: string
-  total_amount: number
-  status: string
-  created_at: string
-  concerts?: { name: string; artist: string } | null
-  users?: { full_name: string | null; email: string } | null
-}
+import { Badge } from "@/components/ui/badge"
+import type { BookingRow } from "@/components/admin/bookings/bookings-table"
 
 interface RecentBookingsProps {
-  bookings: Booking[]
+  bookings: BookingRow[]
 }
 
 export function RecentBookings({ bookings }: RecentBookingsProps) {
   const columns = [
     {
-      key: "user",
+      key: "customer",
       header: "Customer",
-      render: (booking: Booking) => (
-        <div>
-          <p className="font-medium text-card-foreground">
-            {booking.users?.full_name || "Unknown"}
-          </p>
-          <p className="text-sm text-muted-foreground">{booking.users?.email}</p>
-        </div>
+      render: (booking: BookingRow) => (
+        <span className="font-medium text-card-foreground">
+          {booking.user_display_name?.trim() || "Unknown"}
+        </span>
       ),
     },
     {
       key: "concert",
       header: "Concert",
-      render: (booking: Booking) => (
+      render: (booking: BookingRow) => (
         <div>
           <p className="font-medium text-card-foreground">
-            {booking.concerts?.name || "Unknown"}
+            {booking.concert_name || "Unknown"}
           </p>
-          <p className="text-sm text-muted-foreground">{booking.concerts?.artist}</p>
         </div>
       ),
     },
     {
-      key: "total_amount",
-      header: "Amount",
-      render: (booking: Booking) => (
+      key: "tickets",
+      header: "Tickets",
+      render: (booking: BookingRow) => (
+        <span className="max-w-[200px] text-sm text-card-foreground" title={booking.tickets_display}>
+          {booking.tickets_display || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "total",
+      header: "Total",
+      render: (booking: BookingRow) => (
         <span className="font-medium text-card-foreground">
-          ${booking.total_amount?.toFixed(2)}
+          RS {booking.total != null && booking.total !== "" ? booking.total : "0"}
         </span>
       ),
     },
     {
       key: "status",
       header: "Status",
-      render: (booking: Booking) => <StatusBadge status={booking.status} />,
+      render: (booking: BookingRow) => (
+        <Badge
+          variant="outline"
+          className={
+            booking.status === true
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-warning/30 bg-warning/10 text-warning"
+          }
+        >
+          {booking.status === true ? "Confirmed" : "Pending"}
+        </Badge>
+      ),
     },
     {
       key: "created_at",
       header: "Date",
-      render: (booking: Booking) => (
+      render: (booking: BookingRow) => (
         <span className="text-muted-foreground">
           {format(new Date(booking.created_at), "MMM d, yyyy")}
         </span>

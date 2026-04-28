@@ -24,7 +24,7 @@ interface DataTableProps<T> {
   emptyMessage?: string
 }
 
-export function DataTable<T extends { id: string }>({
+export function DataTable<T extends { id: string | number }>({
   data,
   columns,
   isLoading,
@@ -81,7 +81,7 @@ export function DataTable<T extends { id: string }>({
         </TableHeader>
         <TableBody>
           {data.map((item) => (
-            <TableRow key={item.id} className="border-border">
+            <TableRow key={String(item.id)} className="border-border">
               {columns.map((column, colIndex) => (
                 <TableCell key={colIndex} className={column.className}>
                   {column.render

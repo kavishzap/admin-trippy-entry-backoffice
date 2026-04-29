@@ -8,6 +8,7 @@ import {
   Ticket,
   CalendarCheck,
   Users,
+  Landmark,
 } from "lucide-react"
 import {
   Sidebar,
@@ -28,6 +29,7 @@ const mainNavItems = [
   { title: "Tickets", href: "/tickets", icon: Ticket },
   { title: "Bookings", href: "/bookings", icon: CalendarCheck },
   { title: "Users", href: "/users", icon: Users },
+  { title: "Bank Details", href: "/manual-payment", icon: Landmark },
 ]
 
 export function AdminSidebar() {

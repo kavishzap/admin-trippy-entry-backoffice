@@ -104,8 +104,57 @@ export interface TicketWithQrInput {
   confirmed: boolean
 }
 
-/** Full `data:image/png;base64,...` string (same as download preview composite). */
-export async function buildTicketWithQrDataUrl(input: TicketWithQrInput): Promise<string> {
+interface TicketRenderOptions {
+  maxOutputWidth?: number
+  format?: "image/png" | "image/jpeg"
+  quality?: number
+}
+
+function renderScaledTicketWithQr(
+  ticketImg: HTMLImageElement,
+  qrImg: HTMLImageElement,
+  maxOutputWidth: number,
+): HTMLCanvasElement {
+  const naturalW = ticketImg.naturalWidth
+  const naturalH = ticketImg.naturalHeight
+  const scale = naturalW > maxOutputWidth ? maxOutputWidth / naturalW : 1
+  const outW = Math.max(1, Math.round(naturalW * scale))
+  const outH = Math.max(1, Math.round(naturalH * scale))
+
+  const canvas = document.createElement("canvas")
+  canvas.width = outW
+  canvas.height = outH
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Canvas not supported")
+
+  ctx.drawImage(ticketImg, 0, 0, outW, outH)
+
+  const qrW = computeQrSizePx(outW)
+  const pad = Math.max(
+    1,
+    Math.round((QR_LAYOUT.paddingPx * outW) / QR_LAYOUT.refDisplayWidthPx),
+  )
+  const rightGap = (outW * QR_LAYOUT.rightPct) / 100
+  const bottomGap = (outH * QR_LAYOUT.bottomPct) / 100
+  const x = outW - rightGap - qrW
+  const y = outH - bottomGap - qrW
+
+  ctx.fillStyle = "#ffffff"
+  ctx.fillRect(x - pad, y - pad, qrW + pad * 2, qrW + pad * 2)
+  ctx.drawImage(qrImg, x, y, qrW, qrW)
+
+  return canvas
+}
+
+/** Full `data:image/...;base64,...` string for upload/download/email. */
+export async function buildTicketWithQrDataUrl(
+  input: TicketWithQrInput,
+  options?: TicketRenderOptions,
+): Promise<string> {
+  const maxOutputWidth = options?.maxOutputWidth ?? 1200
+  const format = options?.format ?? "image/png"
+  const quality = options?.quality ?? 0.9
+
   const qrText = buildQrPayload(
     input.bookingId,
     input.userName,
@@ -118,19 +167,19 @@ export async function buildTicketWithQrDataUrl(input: TicketWithQrInput): Promis
   const origin = typeof window !== "undefined" ? window.location.origin : ""
   const ticketSrc = `${origin}${TICKET_IMAGE_PATH}`
   const [ticketImg, qrImg] = await Promise.all([loadImage(ticketSrc), loadImage(qrDataUrl)])
-  const canvas = drawTicketWithQr(ticketImg, qrImg)
-  return canvas.toDataURL("image/png", 0.95)
+  const canvas = renderScaledTicketWithQr(ticketImg, qrImg, maxOutputWidth)
+  return canvas.toDataURL(format, quality)
 }
 
-/**
- * Raw base64 (no `data:image/png;base64,` prefix) for EmailJS **Variable attachment**.
- * In EmailJS: Template → Attachments → Variable attachment → parameter name must match the key you send (e.g. `ticket_png`).
- */
+/** Returns compressed data URL (jpeg/png) for storage upload and emails. */
 export async function buildTicketWithQrPngBase64(input: TicketWithQrInput): Promise<string> {
-  const dataUrl = await buildTicketWithQrDataUrl(input)
-  const prefix = "data:image/png;base64,"
-  if (!dataUrl.startsWith(prefix)) {
+  const dataUrl = await buildTicketWithQrDataUrl(input, {
+    maxOutputWidth: 900,
+    format: "image/png",
+    quality: 0.85,
+  })
+  if (!dataUrl.startsWith("data:image/png;base64,")) {
     throw new Error("Unexpected ticket image data URL format")
   }
-  return dataUrl.slice(prefix.length)
+  return dataUrl
 }

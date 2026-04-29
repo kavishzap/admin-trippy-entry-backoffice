@@ -1,4 +1,4 @@
--- Supabase Storage: public bucket for generated booking ticket images (PNG + QR).
+-- Supabase Storage: public bucket for generated booking ticket images (PNG/JPEG + QR).
 -- Run in Supabase SQL Editor once.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -7,7 +7,7 @@ values (
   'booking-tickets',
   true,
   10485760,
-  array['image/png']::text[]
+  array['image/png', 'image/jpeg']::text[]
 )
 on conflict (id) do update
 set public = excluded.public,

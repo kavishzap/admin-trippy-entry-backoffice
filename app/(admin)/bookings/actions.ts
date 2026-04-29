@@ -8,16 +8,25 @@ const BOOKING_TICKETS_BUCKET =
   process.env.NEXT_PUBLIC_SUPABASE_BOOKING_TICKETS_BUCKET ?? "booking-tickets"
 
 /**
- * Uploads a PNG (raw base64, no `data:image/png;base64,` prefix) to Supabase Storage.
- * Bucket must exist and policies applied — see `scripts/003_storage_booking_tickets.sql`.
+ * Uploads generated ticket image (PNG/JPEG base64) to Supabase Storage.
+ * Bucket must exist and policies applied ? see `scripts/003_storage_booking_tickets.sql`.
  */
-export async function uploadBookingTicketPng(bookingId: string, pngBase64: string) {
+export async function uploadBookingTicketPng(bookingId: string, imageBase64OrDataUrl: string) {
   const supabase = await createClient()
 
-  let b64 = pngBase64.trim()
-  const prefix = "data:image/png;base64,"
-  if (b64.startsWith(prefix)) {
-    b64 = b64.slice(prefix.length)
+  const raw = imageBase64OrDataUrl.trim()
+  let b64 = raw
+  let contentType: "image/png" | "image/jpeg" = "image/png"
+  let ext: "png" | "jpg" = "png"
+
+  if (raw.startsWith("data:image/png;base64,")) {
+    b64 = raw.slice("data:image/png;base64,".length)
+    contentType = "image/png"
+    ext = "png"
+  } else if (raw.startsWith("data:image/jpeg;base64,")) {
+    b64 = raw.slice("data:image/jpeg;base64,".length)
+    contentType = "image/jpeg"
+    ext = "jpg"
   }
 
   const approxBytes = Math.floor((b64.length * 3) / 4)
@@ -34,10 +43,10 @@ export async function uploadBookingTicketPng(bookingId: string, pngBase64: strin
   }
 
   const safeId = bookingId.replace(/[^a-zA-Z0-9-_]/g, "_")
-  const path = `generated/${safeId}.png`
+  const path = `generated/${safeId}.${ext}`
 
   const { error } = await supabase.storage.from(BOOKING_TICKETS_BUCKET).upload(path, buffer, {
-    contentType: "image/png",
+    contentType,
     upsert: true,
   })
 
@@ -84,7 +93,7 @@ export async function updateBookingStatus(id: string, status: boolean) {
   }
 
   const lines = parseBookingTicketLines(booking.tickets)
-  /** Confirm → −1 per line; pending → +1 per line (per your spec). */
+  /** Confirm => -1 per line; pending => +1 per line (per your spec). */
   const delta = status === true ? -1 : 1
 
   const rollbacks: Array<{ ticketId: string | number; quantity: string }> = []

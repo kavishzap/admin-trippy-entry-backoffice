@@ -1,6 +1,9 @@
 "use client"
 
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { LogOut } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -25,11 +28,19 @@ const pageTitles: Record<string, string> = {
 
 export function AdminHeader() {
   const pathname = usePathname()
+  const router = useRouter()
   const pageTitle = pageTitles[pathname] || "Dashboard"
+
+  async function handleLogout() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push("/login")
+    router.refresh()
+  }
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-4 border-b border-border bg-card px-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-1 items-center gap-4">
         <SidebarTrigger className="-ml-2" />
         <Separator orientation="vertical" className="h-6" />
         <Breadcrumb>
@@ -44,6 +55,16 @@ export function AdminHeader() {
           </BreadcrumbList>
         </Breadcrumb>
       </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="ml-auto gap-2"
+        onClick={() => void handleLogout()}
+      >
+        <LogOut className="size-4" />
+        Log out
+      </Button>
     </header>
   )
 }

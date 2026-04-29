@@ -33,12 +33,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { updateBookingStatus, uploadBookingTicketPng } from "@/app/(admin)/bookings/actions"
+import { updateBookingStatus } from "@/app/(admin)/bookings/actions"
 import { toast } from "sonner"
 import { UrlPagination } from "@/components/admin/url-pagination"
 import { formatTicketLinesDisplay, parseBookingTicketLines } from "@/lib/bookings-display"
 import { buildTicketWithQrPngBase64 } from "@/lib/ticket-with-qr-image"
 import { BookingTicketVisual, type TicketLineQr } from "@/components/admin/bookings/booking-ticket-visual"
+import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client"
 
 export type { TicketLineQr }
 
@@ -68,6 +69,7 @@ interface BookingsTableProps {
 
 export function BookingsTable({ bookings, total, page, pageSize }: BookingsTableProps) {
   const router = useRouter()
+  const supabase = createBrowserSupabaseClient()
   const [viewBooking, setViewBooking] = useState<BookingRow | null>(null)
   const [statusDialog, setStatusDialog] = useState<{
     booking: BookingRow
@@ -106,6 +108,30 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
     return formatTicketLinesDisplay(parseBookingTicketLines(booking.tickets), {})
   }
 
+  const uploadTicketImageFromDataUrl = async (bookingId: string | number, dataUrl: string) => {
+    const bucket = process.env.NEXT_PUBLIC_SUPABASE_BOOKING_TICKETS_BUCKET ?? "booking-tickets"
+    const isPng = dataUrl.startsWith("data:image/png;base64,")
+    const isJpeg = dataUrl.startsWith("data:image/jpeg;base64,")
+    if (!isPng && !isJpeg) {
+      return { error: "Unexpected ticket image format." as string, publicUrl: null as string | null }
+    }
+
+    const contentType = isPng ? "image/png" : "image/jpeg"
+    const ext = isPng ? "png" : "jpg"
+    const safeId = String(bookingId).replace(/[^a-zA-Z0-9-_]/g, "_")
+    const path = `generated/${safeId}.${ext}`
+
+    const blob = await (await fetch(dataUrl)).blob()
+    const { error } = await supabase.storage.from(bucket).upload(path, blob, {
+      contentType,
+      upsert: true,
+    })
+    if (error) return { error: error.message, publicUrl: null }
+
+    const { data } = supabase.storage.from(bucket).getPublicUrl(path)
+    return { error: null, publicUrl: data.publicUrl }
+  }
+
   const sendBookingEmail = async (booking: BookingRow) => {
     const toEmail = booking.user_email?.trim()
     if (!toEmail) {
@@ -122,7 +148,7 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
     }
 
     try {
-      const pngBase64 = await buildTicketWithQrPngBase64({
+      const ticketDataUrl = await buildTicketWithQrPngBase64({
         bookingId: booking.id,
         userName: booking.user_display_name ?? null,
         email: booking.user_email ?? null,
@@ -131,7 +157,7 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
         confirmed: isConfirmed(booking),
       })
 
-      const upload = await uploadBookingTicketPng(String(booking.id), pngBase64)
+      const upload = await uploadTicketImageFromDataUrl(booking.id, ticketDataUrl)
       if (upload.error || !upload.publicUrl) {
         toast.error(upload.error || "Could not upload ticket image to storage.")
         return
@@ -179,9 +205,6 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
           <p className="font-medium text-card-foreground">
             {booking.user_display_name?.trim() || "Unknown"}
           </p>
-          {booking.userid ? (
-            <p className="text-xs text-muted-foreground font-mono">{booking.userid}</p>
-          ) : null}
         </div>
       ),
     },
@@ -193,9 +216,6 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
           <p className="font-medium text-card-foreground">
             {booking.concert_name || "Unknown"}
           </p>
-          {booking.concertid != null && (
-            <p className="text-xs text-muted-foreground">ID: {booking.concertid}</p>
-          )}
         </div>
       ),
     },
@@ -314,16 +334,10 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
                       {viewBooking.user_phone?.trim() ? (
                         <p className="text-xs text-muted-foreground">{viewBooking.user_phone.trim()}</p>
                       ) : null}
-                      {viewBooking.userid ? (
-                        <p className="mt-0.5 text-[11px] text-muted-foreground font-mono leading-tight break-all">
-                          {viewBooking.userid}
-                        </p>
-                      ) : null}
                     </div>
                     <div className="col-span-2">
                       <p className="text-xs text-muted-foreground">Concert</p>
                       <p className="font-medium leading-tight">{viewBooking.concert_name || "Unknown"}</p>
-                      <p className="text-[11px] text-muted-foreground">concertid: {viewBooking.concertid || "—"}</p>
                     </div>
                     <div className="col-span-2">
                       <p className="text-xs text-muted-foreground">Tickets</p>

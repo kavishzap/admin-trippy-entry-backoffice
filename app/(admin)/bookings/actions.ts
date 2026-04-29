@@ -4,6 +4,51 @@ import { revalidatePath } from "next/cache"
 import { createClient } from "@/lib/supabase/server"
 import { parseBookingTicketLines } from "@/lib/bookings-display"
 
+const BOOKING_TICKETS_BUCKET =
+  process.env.NEXT_PUBLIC_SUPABASE_BOOKING_TICKETS_BUCKET ?? "booking-tickets"
+
+/**
+ * Uploads a PNG (raw base64, no `data:image/png;base64,` prefix) to Supabase Storage.
+ * Bucket must exist and policies applied — see `scripts/003_storage_booking_tickets.sql`.
+ */
+export async function uploadBookingTicketPng(bookingId: string, pngBase64: string) {
+  const supabase = await createClient()
+
+  let b64 = pngBase64.trim()
+  const prefix = "data:image/png;base64,"
+  if (b64.startsWith(prefix)) {
+    b64 = b64.slice(prefix.length)
+  }
+
+  const approxBytes = Math.floor((b64.length * 3) / 4)
+  const maxBytes = 8 * 1024 * 1024
+  if (approxBytes > maxBytes) {
+    return { error: "Ticket image is too large to upload." }
+  }
+
+  let buffer: Buffer
+  try {
+    buffer = Buffer.from(b64, "base64")
+  } catch {
+    return { error: "Invalid ticket image data." }
+  }
+
+  const safeId = bookingId.replace(/[^a-zA-Z0-9-_]/g, "_")
+  const path = `generated/${safeId}.png`
+
+  const { error } = await supabase.storage.from(BOOKING_TICKETS_BUCKET).upload(path, buffer, {
+    contentType: "image/png",
+    upsert: true,
+  })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  const { data } = supabase.storage.from(BOOKING_TICKETS_BUCKET).getPublicUrl(path)
+  return { publicUrl: data.publicUrl }
+}
+
 function parseStoredQuantity(value: string | null | undefined): number {
   const n = parseInt(String(value ?? "").replace(/,/g, ""), 10)
   return Number.isFinite(n) ? n : 0

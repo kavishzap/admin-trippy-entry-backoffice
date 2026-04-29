@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { format } from "date-fns"
 import { useRouter } from "next/navigation"
+import emailjs from "@emailjs/browser"
 import { MoreHorizontal, Eye, ExternalLink, Mail } from "lucide-react"
 import { DataTable } from "@/components/admin/data-table"
 import { Badge } from "@/components/ui/badge"
@@ -32,10 +33,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { updateBookingStatus } from "@/app/(admin)/bookings/actions"
+import { updateBookingStatus, uploadBookingTicketPng } from "@/app/(admin)/bookings/actions"
 import { toast } from "sonner"
 import { UrlPagination } from "@/components/admin/url-pagination"
 import { formatTicketLinesDisplay, parseBookingTicketLines } from "@/lib/bookings-display"
+import { buildTicketWithQrPngBase64 } from "@/lib/ticket-with-qr-image"
 import { BookingTicketVisual, type TicketLineQr } from "@/components/admin/bookings/booking-ticket-visual"
 
 export type { TicketLineQr }
@@ -102,6 +104,61 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
   const ticketsDetailText = (booking: BookingRow) => {
     if (booking.tickets_display) return booking.tickets_display
     return formatTicketLinesDisplay(parseBookingTicketLines(booking.tickets), {})
+  }
+
+  const sendBookingEmail = async (booking: BookingRow) => {
+    const toEmail = booking.user_email?.trim()
+    if (!toEmail) {
+      toast.error("Customer email is missing for this booking.")
+      return
+    }
+
+    const serviceId = process.env.NEXT_PUBLIC_EMAILJS_SERVICE_ID
+    const templateId = process.env.NEXT_PUBLIC_EMAILJS_TEMPLATE_ID
+    const publicKey = process.env.NEXT_PUBLIC_EMAILJS_PUBLIC_KEY
+    if (!serviceId || !templateId || !publicKey) {
+      toast.error("EmailJS is not configured. Add NEXT_PUBLIC_EMAILJS_* env vars.")
+      return
+    }
+
+    try {
+      const pngBase64 = await buildTicketWithQrPngBase64({
+        bookingId: booking.id,
+        userName: booking.user_display_name ?? null,
+        email: booking.user_email ?? null,
+        phone: booking.user_phone ?? null,
+        ticketLines: booking.tickets_qr ?? [],
+        confirmed: isConfirmed(booking),
+      })
+
+      const upload = await uploadBookingTicketPng(String(booking.id), pngBase64)
+      if (upload.error || !upload.publicUrl) {
+        toast.error(upload.error || "Could not upload ticket image to storage.")
+        return
+      }
+
+      await emailjs.send(
+        serviceId,
+        templateId,
+        {
+          to_name: booking.user_display_name?.trim() || "Customer",
+          to_email: toEmail,
+          booking_id: String(booking.id),
+          status: isConfirmed(booking) ? "Confirmed" : "Pending",
+          concert_name: booking.concert_name || "N/A",
+          tickets: booking.tickets_display || ticketsDetailText(booking),
+          total: `RS ${booking.total != null && booking.total !== "" ? String(booking.total) : "0"}`,
+          /** Public URL after upload — use in template: <img src="{{ticket_image_url}}" /> */
+          ticket_image_url: upload.publicUrl,
+        },
+        { publicKey },
+      )
+      toast.success("Booking email sent successfully.")
+    } catch (err) {
+      const text =
+        err && typeof err === "object" && "text" in err ? String((err as { text?: string }).text) : null
+      toast.error(text || "Failed to send booking email.")
+    }
   }
 
   const columns = [
@@ -214,22 +271,16 @@ export function BookingsTable({ bookings, total, page, pageSize }: BookingsTable
               <Eye className="mr-2 h-4 w-4" />
               View Details
             </DropdownMenuItem>
-            {isConfirmed(booking) ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault()
-                    toast.info("Email sending will be available soon.", {
-                      description: `Booking #${String(booking.id)} — connect your mail provider to send tickets automatically.`,
-                    })
-                  }}
-                >
-                  <Mail className="mr-2 h-4 w-4" />
-                  Send ticket by email
-                </DropdownMenuItem>
-              </>
-            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault()
+                void sendBookingEmail(booking)
+              }}
+            >
+              <Mail className="mr-2 h-4 w-4" />
+              Send email
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
